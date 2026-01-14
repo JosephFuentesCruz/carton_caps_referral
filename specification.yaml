@@ -1,0 +1,421 @@
+openapi: 3.1.0
+info:
+  title: Carton Caps - Referral API
+  version: "1.0.0"
+  description: >
+    REST API contract to power the Referral feature (Invite Friends, share links, referral status, and
+    deferred deep link routing). Authentication, profile, registration, and redemption are assumed
+    to exist in the broader API and are not specified here.
+
+servers:
+  - url: https://api.cartoncaps.link
+    description: Production
+  - url: http://localhost:5000
+    description: Local
+
+tags:
+  - name: Referrals
+    description: Referral link creation and referral summaries.
+  - name: DeepLinks
+    description: Deferred deep link resolution.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    UserId:
+      name: userId
+      in: query
+      required: false
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: nextCursor
+      in: query
+      required: false
+      schema:
+        type: string
+    ReferralId:
+      name: referralId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ReferrerUserId:
+      name: referrerUserId
+      in: query
+      required: true
+      schema:
+        type: string
+    ReferrerReferralCode:
+      name: referrerReferralCode
+      in: query
+      required: true
+      schema:
+        type: string
+    Channel:
+      name: channel
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/ShareChannel"
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, traceId]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+            traceId:
+              type: string
+
+    ReferralStatus:
+      type: string
+      enum: [PENDING, COMPLETE, EXPIRED, INVALID]
+
+    ShareChannel:
+      type: string
+      enum: [SMS, EMAIL, SHARE_SHEET, COPY_LINK]
+
+    DeepLinkDestinationType:
+      type: string
+      enum: [AUTH_GATE_DEFAULT, AUTH_GATE_REFERRAL]
+
+    Destination:
+      type: object
+      properties:
+        type:
+          $ref: "#/components/schemas/DeepLinkDestinationType"
+        title:
+          type: string
+          nullable: true
+        body:
+          type: string
+          nullable: true
+        primaryCta:
+          type: string
+          nullable: true
+        secondaryCta:
+          type: string
+          nullable: true
+
+    SharePayload:
+      type: object
+      required: [channel, message]
+      properties:
+        channel:
+          $ref: "#/components/schemas/ShareChannel"
+        subject:
+          type: string
+          nullable: true
+        message:
+          type: string
+
+    ReferralLinkResponse:
+      type: object
+      required: [referralLinkId, shareUrl, sharePayload]
+      properties:
+        referralLinkId:
+          type: string
+          format: uuid
+        shareUrl:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        sharePayload:
+          $ref: "#/components/schemas/SharePayload"
+
+    ReferralLinkEntity:
+      type: object
+      required:
+        [
+          Id,
+          ReferrerUserId,
+          ReferrerReferralCode,
+          Channel,
+          VendorToken,
+          ShareUrl,
+          CreatedAt,
+          ExpiresAt,
+        ]
+      properties:
+        Id:
+          type: string
+          format: uuid
+        ReferrerUserId:
+          type: string
+        ReferrerReferralCode:
+          type: string
+        Channel:
+          $ref: "#/components/schemas/ShareChannel"
+        VendorToken:
+          type: string
+        ShareUrl:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+        ExpiresAt:
+          type: string
+          format: date-time
+        DestinationType:
+          $ref: "#/components/schemas/DeepLinkDestinationType"
+
+    ReferralSummary:
+      type: object
+      required: [ReferralId, ReferrerUserId, DisplayName, Status, UpdatedAt]
+      properties:
+        ReferralId:
+          type: string
+          format: uuid
+        ReferrerUserId:
+          type: string
+        DisplayName:
+          type: string
+        Status:
+          $ref: "#/components/schemas/ReferralStatus"
+        UpdatedAt:
+          type: string
+          format: date-time
+        ReferralLinkId:
+          type: string
+          format: uuid
+          nullable: true
+
+    ReferralList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferralSummary"
+        nextCursor:
+          type: string
+          nullable: true
+
+    DeepLinkResolveRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    PrefillInfo:
+      type: object
+      required: [registrationReferalCode]
+      properties:
+        registrationReferalCode:
+          type: string
+
+    DeepLinkResolveResponseReferred:
+      type: object
+      required:
+        [isReferred, referralCode, destination, prefillInfo, referralLinkId]
+      properties:
+        isReferred:
+          type: boolean
+          const: true
+        referralCode:
+          type: string
+        destination:
+          $ref: "#/components/schemas/Destination"
+        prefillInfo:
+          $ref: "#/components/schemas/PrefillInfo"
+        referralLinkId:
+          type: string
+          format: uuid
+
+    DeepLinkResolveResponseNotReferred:
+      type: object
+      required: [isReferred, destination]
+      properties:
+        isReferred:
+          type: boolean
+          const: false
+        destination:
+          $ref: "#/components/schemas/Destination"
+
+    DeepLinkResolveResponse:
+      oneOf:
+        - $ref: "#/components/schemas/DeepLinkResolveResponseReferred"
+        - $ref: "#/components/schemas/DeepLinkResolveResponseNotReferred"
+
+  responses:
+    BadRequest:
+      description: Validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid authentication.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimited:
+      description: Too many requests.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    VendorUnavailable:
+      description: Deferred deep link vendor unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/deeplinks/resolve:
+    post:
+      tags: [DeepLinks]
+      summary: Resolve deferred deep link token (public)
+      operationId: resolveDeferredDeepLink
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeepLinkResolveRequest"
+      responses:
+        "200":
+          description: Deep link resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeepLinkResolveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/VendorUnavailable"
+
+  /v1/referral-links:
+    post:
+      tags: [Referrals]
+      summary: Generate a vendor-backed referral link (query params)
+      operationId: createReferralLink
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReferrerUserId"
+        - $ref: "#/components/parameters/ReferrerReferralCode"
+        - $ref: "#/components/parameters/Channel"
+      responses:
+        "200":
+          description: Referral link created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralLinkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/VendorUnavailable"
+
+    get:
+      tags: [Referrals]
+      summary: Retrieve referral links for a user (by `userId`)
+      operationId: getReferralLinksByUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Referral links returned as an array.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReferralLinkEntity"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/referral-links/{referralId}:
+    get:
+      tags: [Referrals]
+      summary: Get a referral link by id
+      operationId: getReferralLinkById
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReferralId"
+      responses:
+        "200":
+          description: Referral link returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralLinkEntity"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/referrals:
+    get:
+      tags: [Referrals]
+      summary: List the authenticated user's referrals (paged)
+      operationId: listReferrals
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Referrals listed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
