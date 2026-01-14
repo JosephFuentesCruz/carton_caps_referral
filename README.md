@@ -36,6 +36,53 @@ dotnet run --project carton_caps_referral\\carton_caps_referral.csproj
 - When started you'll see lines like "Now listening on: https://localhost:5001" in the console — open the URL and append `/swagger` to view the Swagger UI.
 - If HTTPS is enabled and a browser warns about a certificate, accept/trust the dev certificate or use the HTTP URL shown in the console.
 
+**Seed Data (Development)**
+
+- The application seeds a small set of referral links and referral summaries when run in the `Development` environment.
+- Seeded referral links (vendor tokens & details):
+
+  - `seed_tok_1` — Id: `11111111-1111-1111-1111-111111111111`, ReferrerUserId: `mock-user-1`, ReferrerReferralCode: `XYZG4D`, Channel: `SMS`, ShareUrl: `https://mock.vendor/dl/seed_tok_1`, Expires: in the future
+  - `seed_tok_2` — Id: `22222222-2222-2222-2222-222222222222`, ReferrerUserId: `mock-user-1`, ReferrerReferralCode: `XYZG4D`, Channel: `EMAIL`, ShareUrl: `https://mock.vendor/dl/seed_tok_2`, Expires: in the future
+  - `seed_tok_expired` — Id: `33333333-3333-3333-3333-333333333333`, ReferrerUserId: `mock-user-2`, ReferrerReferralCode: `ABCD12`, Channel: `COPY_LINK`, ShareUrl: `https://mock.vendor/dl/seed_tok_expired`, Expires: expired
+
+- Seeded referral summaries (used by `/v1/referrals`):
+
+  - `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa` — ReferrerUserId: `mock-user-1`, DisplayName: `Jenny S.`, Status: `COMPLETE`, ReferralLinkId: `22222222-2222-2222-2222-222222222222`
+  - `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb` — ReferrerUserId: `mock-user-1`, DisplayName: `Invited friend`, Status: `PENDING`, ReferralLinkId: `11111111-1111-1111-1111-111111111111`
+  - `cccccccc-cccc-cccc-cccc-cccccccccccc` — ReferrerUserId: `mock-user-1`, DisplayName: `Unknown`, Status: `EXPIRED`, ReferralLinkId: `11111111-1111-1111-1111-111111111111`
+  - `dddddddd-dddd-dddd-dddd-dddddddddddd` — ReferrerUserId: `mock-user-1`, DisplayName: `User`, Status: `INVALID`, ReferralLinkId: `22222222-2222-2222-2222-222222222222`
+
+- Quick requests to exercise the seeded data (assumes app running at `https://localhost:5001` or HTTP URL printed by Kestrel):
+
+  - List referral links for seeded user `mock-user-1`:
+
+  ```powershell
+  curl -Uri "https://localhost:5001/v1/referral-links?userId=mock-user-1&limit=10" -UseBasicParsing
+  ```
+
+  - Get a single referral link by id (example):
+
+  ```powershell
+  curl -Uri "https://localhost:5001/v1/referral-links/11111111-1111-1111-1111-111111111111" -UseBasicParsing
+  ```
+
+  - Resolve a vendor deep link token (POST to `api/deeplinks/resolve`):
+
+  ```powershell
+  curl -Method POST -Uri "https://localhost:5001/api/deeplinks/resolve" -Body '{"token":"seed_tok_1"}' -ContentType 'application/json'
+  ```
+
+  - List referral summaries for `mock-user-1`:
+
+  ```powershell
+  curl -Uri "https://localhost:5001/v1/referrals?userId=mock-user-1&limit=10" -UseBasicParsing
+  ```
+
+Notes:
+
+- `seed_tok_expired` demonstrates an expired token case; resolving it may return an expired/invalid result depending on the service logic.
+- All seeded values are defined in the seed code at [carton_caps_referral/Seed/SeedData.cs](carton_caps_referral/Seed/SeedData.cs#L1-L200).
+
 **Run (production-like)**
 
 - Clear the environment variable (or set to `Production`) before running. In Production, seed+Swagger are disabled by the app.
@@ -102,8 +149,3 @@ dotnet test carton_caps_referral.Tests\\carton_caps_referral.Tests.csproj
 # Trust dev cert (if needed for HTTPS)
 dotnet dev-certs https --trust
 ```
-
-If you want, I can also:
-
-- add a `launch.json` / `tasks.json` for VS Code,
-- or run the build & tests now and paste the output.
