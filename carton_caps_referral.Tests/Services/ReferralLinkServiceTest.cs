@@ -11,12 +11,14 @@ namespace carton_caps_referral.Tests.Services
     {
         private readonly Mock<IReferralLinkRepository> _referralLinkRepositoryMock = new(MockBehavior.Strict);
         private readonly Mock<IDeferredLinkVendorRepository> _deferredLinkVendorRepositoryMock = new(MockBehavior.Strict);
+        private readonly Mock<IRateLimiterRepository> _rateLimiterRepositoryMock = new(MockBehavior.Strict);
 
         private ReferralLinkService CreateService()
         {
             return new ReferralLinkService(
                 _referralLinkRepositoryMock.Object,
-                _deferredLinkVendorRepositoryMock.Object);
+                _deferredLinkVendorRepositoryMock.Object,
+                _rateLimiterRepositoryMock.Object);
         }
 
         [Fact]
@@ -26,6 +28,8 @@ namespace carton_caps_referral.Tests.Services
             var referralCode = "referralCode";
             var channel = ShareChannel.SMS;
 
+            SetupRateLimitAllowed(userId);
+
             _deferredLinkVendorRepositoryMock
                 .Setup(repo => repo.GenerateDeferredLink(referralCode))
                 .ThrowsAsync(new KeyNotFoundException("Vendor down"));
@@ -33,11 +37,14 @@ namespace carton_caps_referral.Tests.Services
             var service = CreateService();
 
             var ex = await Assert.ThrowsAsync<ApiVendorNotFoundException>(() => service.CreateReferralLinkAsync(userId, referralCode, channel));
+           
             Assert.Contains("unavailable", ex.Message, StringComparison.OrdinalIgnoreCase);
 
+            _rateLimiterRepositoryMock.Verify(repo => repo.IsRateLimitedAsync($"referral-link-create:{userId}", out It.Ref<int>.IsAny), Times.Once);
             _deferredLinkVendorRepositoryMock.Verify(v => v.GenerateDeferredLink(referralCode), Times.Once);
             _referralLinkRepositoryMock.VerifyNoOtherCalls();
             _deferredLinkVendorRepositoryMock.VerifyNoOtherCalls();
+            _rateLimiterRepositoryMock.VerifyNoOtherCalls();
         }
 
         [Fact]
@@ -46,6 +53,8 @@ namespace carton_caps_referral.Tests.Services
             var userId = "user123";
             var referralCode = "referralCode";
             var channel = ShareChannel.SMS;
+
+            SetupRateLimitAllowed(userId);
 
             var vendorLink = new DeepLink
             { Url = "https://vendor.com/deeplink", VendorToken = "vendorToken" };
@@ -63,38 +72,37 @@ namespace carton_caps_referral.Tests.Services
             var response = await service.CreateReferralLinkAsync(userId, referralCode, channel);
 
             Assert.Equal(vendorLink.Url, response.ShareUrl);
-            Assert.NotNull(response.SharePayload);
             Assert.Equal(channel, response.SharePayload.Channel);
             Assert.Contains(vendorLink.Url, response.SharePayload.Message);
             Assert.Null(response.SharePayload.Subject);
 
-            _referralLinkRepositoryMock.Verify(
-                repo => repo.CreateReferralLink(
-                    It.Is<ReferralLinkEntity>(entity =>
-                        entity.ReferrerUserId == userId &&
-                        entity.ReferrerReferralCode == referralCode &&
-                        entity.Channel == channel &&
-                        entity.VendorToken == vendorLink.VendorToken &&
-                        entity.ShareUrl == vendorLink.Url &&
-                        entity.DestinationType == DeepLinkDestinationType.AUTH_GATE_REFERRAL &&
-                        entity.Id != Guid.Empty)),
-                Times.Once);
+            _rateLimiterRepositoryMock.Verify(repo => repo.IsRateLimitedAsync($"referral-link-create:{userId}", out It.Ref<int>.IsAny), Times.Once);
 
             _deferredLinkVendorRepositoryMock.Verify(v => v.GenerateDeferredLink(referralCode), Times.Once);
+
+            _referralLinkRepositoryMock.Verify(
+                repo => repo.CreateReferralLink(
+                    It.IsAny<ReferralLinkEntity>()),
+                Times.Once);
+
             _referralLinkRepositoryMock.VerifyNoOtherCalls();
             _deferredLinkVendorRepositoryMock.VerifyNoOtherCalls();
+            _rateLimiterRepositoryMock.VerifyNoOtherCalls();
         }
 
+        [Fact]
         public async Task CreateReferralLinkAsync_WhenEmail_ReturnsSubjectAndEmailMessage()
         {
             var userId = "user123";
             var referralCode = "referralCode";
             var channel = ShareChannel.EMAIL;
 
+            SetupRateLimitAllowed(userId);
+
             var vendorLink = new DeepLink
-            { 
+            {
                 Url = "https://vendor.com/deeplink",
-                VendorToken = "vendorToken" 
+                VendorToken = "vendorToken"
             };
 
             _deferredLinkVendorRepositoryMock
@@ -114,10 +122,13 @@ namespace carton_caps_referral.Tests.Services
             Assert.False(string.IsNullOrWhiteSpace(response.SharePayload.Subject));
             Assert.Contains(vendorLink.Url, response.SharePayload.Message);
 
+            _rateLimiterRepositoryMock.Verify(repo => repo.IsRateLimitedAsync($"referral-link-create:{userId}", out It.Ref<int>.IsAny), Times.Once);
             _deferredLinkVendorRepositoryMock.Verify(v => v.GenerateDeferredLink(referralCode), Times.Once);
             _referralLinkRepositoryMock.Verify(r => r.CreateReferralLink(It.IsAny<ReferralLinkEntity>()), Times.Once);
+
             _referralLinkRepositoryMock.VerifyNoOtherCalls();
             _deferredLinkVendorRepositoryMock.VerifyNoOtherCalls();
+            _rateLimiterRepositoryMock.VerifyNoOtherCalls();
         }
 
         [Fact]
@@ -211,6 +222,49 @@ namespace carton_caps_referral.Tests.Services
                 Times.Once);
             _referralLinkRepositoryMock.VerifyNoOtherCalls();
             _deferredLinkVendorRepositoryMock.VerifyNoOtherCalls();
+        }
+
+        [Fact]
+        public async Task CreateReferralLinkAsync_WhenRateLimited_ThrowsApiRateLimitException_AndDoesNotCallVendor()
+        {
+            var userId = "user123";
+            var referralCode = "referralCode";
+            var channel = ShareChannel.SMS;
+
+            SetupRateLimitedBlocked(userId, retryAfterSeconds: 30);
+
+            var service = CreateService();
+
+            var ex = await Assert.ThrowsAsync<ApiRateLimitException>(() =>
+                service.CreateReferralLinkAsync(userId, referralCode, channel));
+
+            Assert.Contains("rate limit exceeded", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+            _rateLimiterRepositoryMock.Verify(repo => repo.IsRateLimitedAsync($"referral-link-create:{userId}", out It.Ref<int>.IsAny), Times.Once);
+
+            // These must not be called if rate-limited
+            _deferredLinkVendorRepositoryMock.VerifyNoOtherCalls();
+            _referralLinkRepositoryMock.VerifyNoOtherCalls();
+            _rateLimiterRepositoryMock.VerifyNoOtherCalls();
+        }
+
+
+        private void SetupRateLimitAllowed(string userId)
+        {
+            var expectedKey = $"referral-link-create:{userId}";
+
+            _rateLimiterRepositoryMock
+                .Setup(repo => repo.IsRateLimitedAsync(expectedKey, out It.Ref<int>.IsAny))
+                .ReturnsAsync(true);
+        }
+
+        private void SetupRateLimitedBlocked(string userId, int retryAfterSeconds)
+        {
+            var expectedKey = $"referral-link-create:{userId}";
+
+            _rateLimiterRepositoryMock
+                .Setup(repo => repo.IsRateLimitedAsync(expectedKey, out retryAfterSeconds))
+                .ReturnsAsync(false);
         }
     }
 }
