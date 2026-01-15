@@ -19,11 +19,11 @@
 
     public sealed class  ApiRateLimitException : ApiExceptionHandler
     {
-        public int? RetryAfter { get; init; } = 60;
+        public int? RetryAfterSeconds { get; init; } = 60;
 
         public ApiRateLimitException(string message, object? details = null, int? retryAfter = null) : base(message, details)
         {
-            RetryAfter = retryAfter;
+                RetryAfterSeconds = retryAfter;
         }
     }
 

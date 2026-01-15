@@ -14,16 +14,19 @@ namespace carton_caps_referral.Services
         /// </summary>
         private readonly IReferralLinkRepository referralLinkRepository;
         private readonly IDeferredLinkVendorRepository deferredLinkVendorRepository;
+        private readonly IRateLimiterRepository rateLimiterRepository;
 
         /// <summary>
         /// Initializes a new instance of <see cref="ReferralLinkService"/>.
         /// </summary>
         /// <param name="referralLinkRepository">Repository for storing referral link entities.</param>
         /// <param name="deferredLinkVendor">Vendor repository used to generate deferred vendor links.</param>
-        public ReferralLinkService(IReferralLinkRepository referralLinkRepository, IDeferredLinkVendorRepository deferredLinkVendor)
+        /// <param name="rateLimiterRepository">Repository for rate limiting operations.</param>
+        public ReferralLinkService(IReferralLinkRepository referralLinkRepository, IDeferredLinkVendorRepository deferredLinkVendor, IRateLimiterRepository rateLimiterRepository)
         {
             this.referralLinkRepository = referralLinkRepository;
             this.deferredLinkVendorRepository = deferredLinkVendor;
+            this.rateLimiterRepository = rateLimiterRepository;
         }
 
         /// <summary>
@@ -37,6 +40,8 @@ namespace carton_caps_referral.Services
         /// <returns>A <see cref="ReferralLinkResponse"/> wrapped in a <see cref="Task"/>.</returns>
         public async Task<ReferralLinkResponse> CreateReferralLinkAsync(string referrerUserId, string referrerReferralCode, ShareChannel channel)
         {
+            await ValidateRateLimitAsync(referrerUserId);
+
             DeepLink vendorLink;
             try
             {
@@ -129,7 +134,27 @@ namespace carton_caps_referral.Services
                         Subject = "You’re invited to try the Carton Caps app!"
                     };
             }
-            ;
+        }
+
+        /// <summary>
+        /// Validates if the user has exceeded the rate limit for creating referral links.
+        /// </summary>
+        /// <param name="userId"></param>
+        /// <returns></returns>
+        /// <exception cref="ApiRateLimitException">Thrown when the user exceeds the allowed rate limit.</exception>
+        private async Task ValidateRateLimitAsync(string userId)
+        {
+            var key = $"referral-link-create:{userId}";
+            int retryAfterSeconds;
+            var isRateLimited = await rateLimiterRepository.IsRateLimitedAsync(key, out retryAfterSeconds);
+            if (!isRateLimited)
+            {
+                throw new ApiRateLimitException(
+                    "Rate limit exceeded for creating referral links.",
+                    new { userId, limitScope = "per-user", windowSecond = 60 },
+                    retryAfterSeconds
+                 );
+            }
         }
     }
 }

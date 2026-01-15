@@ -20,8 +20,9 @@ builder.Services.AddSingleton<TraceIdHeaderMiddleware>();
 
 //Repositories (InMemory for testing purpose)
 builder.Services.AddSingleton<IReferralLinkRepository, InMemoryReferralLinkRepository>();
-builder.Services.AddScoped<IDeferredLinkVendorRepository, DeferredLinkVendorRepository>();
 builder.Services.AddSingleton<IReferralRepository, InMemoryReferralRepository>();
+builder.Services.AddSingleton<IRateLimiterRepository>(sp => new InMemoryRateLimiter(5, TimeSpan.FromMinutes(1)));
+builder.Services.AddScoped<IDeferredLinkVendorRepository, DeferredLinkVendorRepository>();
 
 //Services
 builder.Services.AddScoped<IReferralLinkService, ReferralLinkService>();

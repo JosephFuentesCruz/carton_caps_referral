@@ -31,7 +31,7 @@ namespace carton_caps_referral.Controllers
         /// </returns>
         [HttpGet]
         [ProducesResponseType(typeof(ReferralSummary), (int)HttpStatusCode.OK)]
-        [ProducesResponseType((int)HttpStatusCode.NotFound)]
+        [ProducesResponseType((int)HttpStatusCode.BadRequest)]
         public async Task<IActionResult> GetReferrals(
             [FromQuery] string userId,
             [FromQuery] int limit,
@@ -40,7 +40,7 @@ namespace carton_caps_referral.Controllers
             var referrals = await referralService.GetReferralsByUserId(userId, limit, nextCursor);
             if (referrals == null || referrals.Items.Count() == 0)
             {
-                throw new ApiNotFoundException($"No referrals found for user with id '{userId}'.", new { userId });
+                return BadRequest($"No referrals found for user with id '{userId}'.");
             }
             return Ok(referrals);
         }
